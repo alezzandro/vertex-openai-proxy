@@ -1,0 +1,4 @@
+litellm[proxy]
+google-cloud-aiplatform
+google-auth
+google-auth-httplib2

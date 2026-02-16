@@ -1,0 +1,17 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: vertex-openai-proxy
+  labels:
+    app: vertex-openai-proxy
+    app.kubernetes.io/name: vertex-openai-proxy
+spec:
+  to:
+    kind: Service
+    name: vertex-openai-proxy
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
