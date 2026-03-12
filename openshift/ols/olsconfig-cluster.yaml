@@ -1,0 +1,54 @@
+apiVersion: ols.openshift.io/v1alpha1
+kind: OLSConfig
+metadata:
+  name: cluster
+  labels:
+    app.kubernetes.io/created-by: lightspeed-operator
+    app.kubernetes.io/instance: olsconfig-sample
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: olsconfig
+    app.kubernetes.io/part-of: lightspeed-operator
+spec:
+  llm:
+    providers:
+      - name: GoogleCloud
+        # Use rhelai_vllm type since the proxy exposes an OpenAI-compatible API
+        type: rhelai_vllm
+        # Points to the vertex-openai-proxy Service inside the cluster.
+        # Adjust the namespace if you deployed the proxy in a different namespace.
+        url: "http://vertex-openai-proxy.<PROXY_NAMESPACE>.svc.cluster.local:8080/v1"
+        credentialsSecretRef:
+          name: proxy-api-keys
+        models:
+          - name: claude-sonnet-4-5
+            parameters: {}
+  ols:
+    defaultProvider: GoogleCloud
+    defaultModel: claude-sonnet-4-5
+    logLevel: DEBUG
+    introspectionEnabled: true
+    deployment:
+      api:
+        replicas: 1
+      console:
+        replicas: 1
+      database:
+        replicas: 1
+      dataCollector: {}
+      llamaStack: {}
+      mcpServer: {}
+    conversationCache:
+      type: postgres
+      postgres:
+        maxConnections: 2000
+        sharedBuffers: 256MB
+    toolFilteringConfig:
+      alpha: 0.8
+      threshold: 0.01
+      topK: 10
+    toolsApprovalConfig:
+      approvalType: never
+      approvalTimeout: 600
+    userDataCollection: {}
+  olsDataCollector:
+    logLevel: INFO

@@ -159,7 +159,9 @@ docker build -t vertex-openai-proxy:latest -f Containerfile .
 
 ### 3.1 Set Environment Variables
 
-Create a local environment file (do **not** commit this file):
+Create a local environment file (do **not** commit this file). Choose the method that matches your credentials:
+
+**Option A -- authorized_user credentials** (from `gcloud auth application-default login`):
 
 ```bash
 cat > .env <<'EOF'
@@ -171,6 +173,35 @@ GOOGLE_REFRESH_TOKEN=1//your-refresh-token
 GOOGLE_QUOTA_PROJECT_ID=your-quota-project-id
 LITELLM_MASTER_KEY=sk-local-test-key-1234
 EOF
+```
+
+**Option B -- service account JSON key file:**
+
+> **Important:** Podman/Docker `--env-file` requires each value on a **single line**. Use `jq -c` to compact the JSON.
+
+```bash
+# Flatten the service account JSON to a single line and write the .env file
+SA_JSON=$(cat /path/to/sa-key.json | jq -c .)
+
+cat > .env <<EOF
+VERTEX_PROJECT_ID=your-gcp-project-id
+VERTEX_LOCATION=us-east5
+GOOGLE_APPLICATION_CREDENTIALS_JSON=${SA_JSON}
+LITELLM_MASTER_KEY=sk-local-test-key-1234
+EOF
+```
+
+Alternatively, skip the `.env` file and pass the JSON directly via `-e`:
+
+```bash
+podman run --rm -it \
+    -e VERTEX_PROJECT_ID="your-gcp-project-id" \
+    -e VERTEX_LOCATION="us-east5" \
+    -e GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat /path/to/sa-key.json)" \
+    -e LITELLM_MASTER_KEY="sk-local-test-key-1234" \
+    -p 8080:8080 \
+    --name vertex-proxy \
+    vertex-openai-proxy:latest
 ```
 
 > **Security:** The `.env` file is in `.gitignore` and should **never** be committed.
@@ -297,7 +328,9 @@ vi openshift/secret.yaml
 oc apply -f openshift/secret.yaml
 ```
 
-Alternatively, create the secret directly from the command line:
+Alternatively, create the secret directly from the command line.
+
+**Using authorized_user credentials (individual fields):**
 
 ```bash
 oc create secret generic vertex-openai-proxy-credentials \
@@ -309,6 +342,18 @@ oc create secret generic vertex-openai-proxy-credentials \
     --from-literal=GOOGLE_QUOTA_PROJECT_ID="your-quota-project-id" \
     --from-literal=LITELLM_MASTER_KEY="sk-your-production-key"
 ```
+
+**Using a service account JSON key file:**
+
+```bash
+oc create secret generic vertex-openai-proxy-credentials \
+    --from-literal=VERTEX_PROJECT_ID="your-project-id" \
+    --from-literal=VERTEX_LOCATION="us-east5" \
+    --from-literal=GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat /path/to/sa-key.json)" \
+    --from-literal=LITELLM_MASTER_KEY="sk-your-production-key"
+```
+
+> **Note:** Unlike `.env` files, Kubernetes secrets handle multi-line values natively, so the JSON does not need to be flattened.
 
 ### 4.3 Deploy
 
@@ -350,21 +395,108 @@ curl "https://${PROXY_URL}/v1/chat/completions" \
 
 ---
 
+## Step 5: Integration with OpenShift Lightspeed (OLS)
+
+The proxy can be used as the LLM backend for [OpenShift Lightspeed](https://docs.openshift.com/container-platform/latest/lightspeed/index.html). Because the proxy exposes an OpenAI-compatible API, OLS can connect to it using the `rhelai_vllm` provider type.
+
+Template manifests are provided in `openshift/ols/`.
+
+```
+┌────────────────────────┐         ┌──────────────────────┐         ┌──────────────┐
+│  OpenShift Lightspeed  │  ────►  │  vertex-openai-proxy │  ────►  │  Vertex AI   │
+│  (openshift-lightspeed │         │  (your namespace)    │         │  (GCP)       │
+│   namespace)           │         │  :8080/v1            │         │              │
+└────────────────────────┘         └──────────────────────┘         └──────────────┘
+```
+
+### 5.1 Create the OLS API Key Secret
+
+OLS authenticates to the proxy using an API token. This token **must match** the `LITELLM_MASTER_KEY` you configured on the proxy.
+
+Edit `openshift/ols/secret-proxy-api-keys.yaml` and set the `apitoken` value to the same key:
+
+```bash
+vi openshift/ols/secret-proxy-api-keys.yaml
+
+oc apply -f openshift/ols/secret-proxy-api-keys.yaml
+```
+
+Or create it directly:
+
+```bash
+oc create secret generic proxy-api-keys \
+    -n openshift-lightspeed \
+    --from-literal=apitoken="sk-your-production-key"
+```
+
+> **Important:** The `apitoken` value here must be identical to the `LITELLM_MASTER_KEY` in the `vertex-openai-proxy-credentials` secret.
+
+### 5.2 Configure the OLSConfig CR
+
+Edit `openshift/ols/olsconfig-cluster.yaml` and replace `<PROXY_NAMESPACE>` with the namespace where the proxy is deployed:
+
+```bash
+vi openshift/ols/olsconfig-cluster.yaml
+
+oc apply -f openshift/ols/olsconfig-cluster.yaml
+```
+
+Key fields in the template:
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| `spec.llm.providers[0].type` | `rhelai_vllm` | Tells OLS to use the OpenAI-compatible API format |
+| `spec.llm.providers[0].url` | `http://vertex-openai-proxy.<PROXY_NAMESPACE>.svc.cluster.local:8080/v1` | In-cluster service URL of the proxy |
+| `spec.llm.providers[0].credentialsSecretRef.name` | `proxy-api-keys` | References the secret created in 5.1 |
+| `spec.llm.providers[0].models[0].name` | `claude-sonnet-4-5` | Model name as defined in the proxy's `litellm_config.yaml` |
+| `spec.ols.defaultProvider` | `GoogleCloud` | Provider name to use by default |
+| `spec.ols.defaultModel` | `claude-sonnet-4-5` | Model to use by default |
+
+> **Tip:** You can add more models to the `models` list. Use any model name from the [Model Mappings](#model-mappings) table above. For example, to also offer Gemini:
+>
+> ```yaml
+> models:
+>   - name: claude-sonnet-4-5
+>     parameters: {}
+>   - name: gemini-2.0-flash
+>     parameters: {}
+> ```
+
+### 5.3 Verify
+
+Once both resources are applied, check the OLS operator status:
+
+```bash
+oc get olsconfig cluster -o jsonpath='{.status.overallStatus}'
+```
+
+The expected output is `Ready`. If there are issues, check the OLS operator logs:
+
+```bash
+oc logs -n openshift-lightspeed deployment/lightspeed-operator-controller-manager
+```
+
+---
+
 ## Environment Variables Reference
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `VERTEX_PROJECT_ID` | **Yes** | - | Google Cloud project ID with Vertex AI enabled |
 | `VERTEX_LOCATION` | No | `us-east5` | GCP region for Vertex AI (e.g., `us-east5`, `us-central1`, `europe-west1`) |
-| `GOOGLE_CLIENT_ID` | Yes* | - | OAuth client ID from ADC credentials file |
-| `GOOGLE_CLIENT_SECRET` | Yes* | - | OAuth client secret from ADC credentials file |
-| `GOOGLE_REFRESH_TOKEN` | Yes* | - | OAuth refresh token from ADC credentials file |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | Yes* | - | Full credentials JSON -- supports both `service_account` key files and `authorized_user` ADC files. Must be a single line when using `--env-file`. |
+| `GOOGLE_CLIENT_ID` | Yes** | - | OAuth client ID from ADC credentials file |
+| `GOOGLE_CLIENT_SECRET` | Yes** | - | OAuth client secret from ADC credentials file |
+| `GOOGLE_REFRESH_TOKEN` | Yes** | - | OAuth refresh token from ADC credentials file |
 | `GOOGLE_QUOTA_PROJECT_ID` | No | Value of `VERTEX_PROJECT_ID` | Quota/billing project ID |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | Yes* | - | Full credentials JSON (alternative to individual fields) |
 | `LITELLM_MASTER_KEY` | No | - | API key to authenticate clients to the proxy |
 | `LITELLM_PORT` | No | `8080` | Port the proxy listens on |
 
-> \* **Authentication**: Provide either `GOOGLE_APPLICATION_CREDENTIALS_JSON` **or** the individual fields (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`).
+> \* **Method 1 -- Full JSON**: Set `GOOGLE_APPLICATION_CREDENTIALS_JSON` with the complete JSON contents of either a **service account key file** or an **authorized_user** ADC file. This is the only method that supports service accounts.
+>
+> \*\* **Method 2 -- Individual fields**: Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REFRESH_TOKEN` individually. This only works with `authorized_user` credentials (from `gcloud auth application-default login`).
+>
+> Provide credentials using **one** method, not both.
 
 ---
 

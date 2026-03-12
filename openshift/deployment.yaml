@@ -20,6 +20,7 @@ spec:
       containers:
         - name: proxy
           image: quay.io/telco-coe-emea/vertex-openai-proxy:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
               protocol: TCP

@@ -10,7 +10,8 @@ mkdir -p "${CREDS_DIR}"
 # Option 1: Full JSON passed directly (service account or authorized_user)
 if [ -n "${GOOGLE_APPLICATION_CREDENTIALS_JSON:-}" ]; then
     echo "${GOOGLE_APPLICATION_CREDENTIALS_JSON}" > "${CREDS_FILE}"
-    echo "INFO: Wrote credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON."
+    CRED_TYPE=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('type','unknown'))" "${CREDS_FILE}" 2>/dev/null || echo "unknown")
+    echo "INFO: Wrote credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON (type: ${CRED_TYPE})."
 
 # Option 2: Individual fields for authorized_user (OAuth) credentials
 elif [ -n "${GOOGLE_REFRESH_TOKEN:-}" ]; then
@@ -32,10 +33,12 @@ else
     echo ""
     echo "Provide credentials using ONE of these methods:"
     echo ""
-    echo "  Method 1 - Full JSON:"
+    echo "  Method 1 - Full JSON (service account or authorized_user):"
     echo "    GOOGLE_APPLICATION_CREDENTIALS_JSON='{...json...}'"
+    echo "    Supports both service_account key files and authorized_user ADC files."
+    echo "    The JSON must be on a single line when using --env-file with Podman/Docker."
     echo ""
-    echo "  Method 2 - Individual fields (authorized_user):"
+    echo "  Method 2 - Individual fields (authorized_user only):"
     echo "    GOOGLE_CLIENT_ID=<value>"
     echo "    GOOGLE_CLIENT_SECRET=<value>"
     echo "    GOOGLE_REFRESH_TOKEN=<value>"
