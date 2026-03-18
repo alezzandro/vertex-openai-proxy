@@ -31,6 +31,13 @@ spec:
           env:
             - name: LITELLM_PORT
               value: "8080"
+            # Optional: configure an HTTP proxy for outbound traffic to Google Cloud
+            # - name: HTTP_PROXY
+            #   value: "http://your-proxy-ip-or-dns:port"
+            # - name: HTTPS_PROXY
+            #   value: "http://your-proxy-ip-or-dns:port"
+            # - name: NO_PROXY
+            #   value: "localhost,127.0.0.1,.svc,.cluster.local,kubernetes.default"
           resources:
             requests:
               cpu: 250m

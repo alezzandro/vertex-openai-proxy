@@ -516,6 +516,32 @@ No special SCCs, role bindings, or security configurations are needed.
 
 ---
 
+## HTTP Proxy Configuration
+
+If the OpenShift cluster does not have direct outbound connectivity to Google Cloud APIs, you can route traffic through a corporate HTTP proxy. The Python libraries used by LiteLLM (`httpx`, `requests`, `google-auth`) all respect the standard proxy environment variables.
+
+Uncomment the proxy environment variables in `openshift/deployment.yaml` and set the appropriate values:
+
+```yaml
+env:
+  - name: HTTP_PROXY
+    value: "http://your-proxy-ip-or-dns:port"
+  - name: HTTPS_PROXY
+    value: "http://your-proxy-ip-or-dns:port"
+  - name: NO_PROXY
+    value: "localhost,127.0.0.1,.svc,.cluster.local,kubernetes.default"
+```
+
+| Variable | Description |
+|----------|-------------|
+| `HTTP_PROXY` | Proxy URL for HTTP connections |
+| `HTTPS_PROXY` | Proxy URL for HTTPS connections (primary -- all Google Cloud API calls use HTTPS) |
+| `NO_PROXY` | Comma-separated list of hosts and domains to bypass the proxy |
+
+> **Important:** The `NO_PROXY` value must include in-cluster domains (`.svc`, `.cluster.local`) so that traffic between OpenShift services (e.g., OpenShift Lightspeed calling the proxy) is not routed through the corporate proxy.
+
+---
+
 ## Customizing Model Mappings
 
 Each model entry in `litellm_config.yaml` follows this pattern:
