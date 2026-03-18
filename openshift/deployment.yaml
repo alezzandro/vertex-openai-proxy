@@ -52,6 +52,12 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 20
             timeoutSeconds: 5
+          # Optional: mount a ConfigMap to override the baked-in litellm_config.yaml
+          # volumeMounts:
+          #   - name: litellm-config
+          #     mountPath: /app/litellm_config.yaml
+          #     subPath: litellm_config.yaml
+          #     readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
@@ -60,3 +66,8 @@ spec:
             capabilities:
               drop:
                 - ALL
+      # Optional: define the ConfigMap volume for custom model mappings
+      # volumes:
+      #   - name: litellm-config
+      #     configMap:
+      #       name: litellm-config

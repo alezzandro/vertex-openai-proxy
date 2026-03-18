@@ -518,9 +518,7 @@ No special SCCs, role bindings, or security configurations are needed.
 
 ## Customizing Model Mappings
 
-To add or modify model mappings, edit `litellm_config.yaml` before building the container.
-
-Each model entry follows this pattern:
+Each model entry in `litellm_config.yaml` follows this pattern:
 
 ```yaml
 - model_name: my-custom-alias          # Name clients will use
@@ -530,7 +528,46 @@ Each model entry follows this pattern:
     vertex_location: os.environ/VERTEX_LOCATION
 ```
 
-After editing, rebuild the container image.
+For models with a full `publishers/` path (e.g., Model Garden or MaaS models), use the complete path:
+
+```yaml
+- model_name: gpt-oss-120b
+  litellm_params:
+    model: vertex_ai/publishers/openai/models/gpt-oss-120b-maas
+    vertex_project: os.environ/VERTEX_PROJECT_ID
+    vertex_location: os.environ/VERTEX_LOCATION
+```
+
+### Option A -- Edit before building
+
+Edit `litellm_config.yaml` in the repository and rebuild the container image. The configuration is baked into the image.
+
+### Option B -- Override at runtime with a ConfigMap (no rebuild)
+
+Create a ConfigMap from your custom config file and mount it into the running container. This overrides the baked-in configuration without rebuilding the image.
+
+**1. Create the ConfigMap:**
+
+```bash
+oc create configmap litellm-config \
+    --from-file=litellm_config.yaml=/path/to/your/custom-litellm_config.yaml
+```
+
+**2. Uncomment the volume and volumeMount sections** in `openshift/deployment.yaml` (they are provided as commented-out blocks), then apply:
+
+```bash
+oc apply -f openshift/deployment.yaml
+```
+
+**3. To update models later**, replace the ConfigMap and restart:
+
+```bash
+oc create configmap litellm-config \
+    --from-file=litellm_config.yaml=updated-config.yaml \
+    --dry-run=client -o yaml | oc apply -f -
+
+oc rollout restart deployment/vertex-openai-proxy
+```
 
 ---
 
