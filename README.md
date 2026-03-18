@@ -27,6 +27,8 @@ The proxy maps OpenAI model names to Vertex AI models. You can use either the Op
 | `gemini-2.0-flash-lite` | `gemini-2.0-flash-lite`           | Native Gemini name         |
 | `gemini-1.5-pro`     | `gemini-1.5-pro`                     | Native Gemini name         |
 | `gemini-1.5-flash`   | `gemini-1.5-flash`                   | Native Gemini name         |
+| `gpt-oss-120b`       | `openai/gpt-oss-120b-maas`                   | OpenAI GPT OSS 120B (MaaS, `us-central1` only) |
+| `gpt-oss-20b`        | `openai/gpt-oss-20b-maas`                    | OpenAI GPT OSS 20B (MaaS, `us-central1` only)  |
 | `claude-sonnet-4-5`  | `claude-sonnet-4-5@20250929`         | Claude Sonnet 4.5          |
 | `claude-3-5-sonnet`  | `claude-3-5-sonnet-v2@20241022`      | Claude 3.5 Sonnet v2       |
 | `claude-3-opus`      | `claude-3-opus@20240229`             | Claude 3 Opus              |
@@ -554,15 +556,28 @@ Each model entry in `litellm_config.yaml` follows this pattern:
     vertex_location: os.environ/VERTEX_LOCATION
 ```
 
-For models with a full `publishers/` path (e.g., Model Garden or MaaS models), use the complete path:
+For partner and MaaS models, LiteLLM uses provider-specific prefixes (not the full `publishers/` path). Each partner model may also require a specific region. You can override `vertex_location` per model:
 
 ```yaml
 - model_name: gpt-oss-120b
   litellm_params:
-    model: vertex_ai/publishers/openai/models/gpt-oss-120b-maas
+    model: vertex_ai/openai/gpt-oss-120b-maas   # prefix: openai/
     vertex_project: os.environ/VERTEX_PROJECT_ID
-    vertex_location: os.environ/VERTEX_LOCATION
+    vertex_location: us-central1                  # GPT-OSS only available in us-central1
 ```
+
+LiteLLM provider prefixes for Vertex AI partner models:
+
+| Provider | LiteLLM Prefix | Example |
+|----------|----------------|---------|
+| OpenAI (GPT-OSS) | `vertex_ai/openai/` | `vertex_ai/openai/gpt-oss-120b-maas` |
+| DeepSeek | `vertex_ai/deepseek-ai/` | `vertex_ai/deepseek-ai/deepseek-r1-0528-maas` |
+| Meta (Llama) | `vertex_ai/meta/` | `vertex_ai/meta/llama-4-scout-17b-16e-instruct-maas` |
+| Mistral | `vertex_ai/mistral-` | `vertex_ai/mistral-large@latest` |
+| Anthropic (Claude) | `vertex_ai/claude-` | `vertex_ai/claude-sonnet-4-5@20250929` |
+| Qwen | `vertex_ai/qwen/` | `vertex_ai/qwen/qwen3-235b-a22b-instruct-2507-maas` |
+
+> **Note:** Do **not** use the full `publishers/...` Vertex AI path in `litellm_params.model`. LiteLLM uses its own shortened prefixes to route to the correct Vertex AI endpoint for each partner.
 
 ### Option A -- Edit before building
 
